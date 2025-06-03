@@ -1,7 +1,6 @@
-use arrow::datatypes::DataType;
+use arrow_schema::DataType;
 use bincode::config::standard;
 
-// A table column.
 use serde::{ Serialize, Deserialize };
 
 pub fn serialize_column(column: Column) -> Vec<u8> {
@@ -42,38 +41,16 @@ pub struct Column {
     pub references: Option<String>,
 }
 
-pub struct Table {
-    table_name: String,
-    table_id: i64,
 
-    schema: Vec<Column>,
-    url: String,
+
+pub (crate) struct  Schema {
+    pub schema_id: i64,
+    pub schema_bin: Vec<u8>,
+}
+pub(crate)  struct Table {
+    pub table_name: String,
+    pub schema_bin: Vec<u8>,
+    pub url: String,
 }
 
-impl Table {
-    pub(crate) fn new(
-        table_name: String,
-        url: String,
 
-        table_schema: Vec<Column>
-    ) -> Self {
-        unimplemented!()
-    }
-}
-
-pub trait Catalog {
-    /// Creates a new table. Errors if it already exists.
-    fn create_table(&self, table: &Table) -> anyhow::Result<()>;
-    /// Drops a table. Errors if it does not exist, unless if_exists is true.
-    /// Returns true if the table existed and was deleted.
-    fn drop_table(&self, table: &str, if_exists: bool) -> anyhow::Result<bool>;
-    /// Fetches a table schema, or None if it doesn't exist.
-    fn get_table(&self, table: &str) -> anyhow::Result<Option<String>>;
-    /// Returns a list of all table schemas.
-    fn list_tables(&self) -> anyhow::Result<Vec<String>>;
-
-    /// Fetches a table schema, or errors if it does not exist.
-    fn must_get_table(&self, table: &str) -> anyhow::Result<String> {
-        self.get_table(table)?.ok_or_else(|| panic!("table {table} does not exist"))
-    }
-}

@@ -2,11 +2,13 @@
 #[allow(dead_code)]
 pub mod tables;
 pub mod sql_strings;
+pub mod catalogue_storage;
 
-use std::path::PathBuf;
+use std::{ fs::remove_file, path::PathBuf };
 use dashmap::DashMap;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
+use anyhow;
 
 use crate::catalogue::sql_strings::CREATE_SYSTEM_TABLE_SQL;
 
@@ -21,66 +23,42 @@ use crate::catalogue::sql_strings::CREATE_SYSTEM_TABLE_SQL;
 /// form of parquet files.
 
 pub(crate) struct RootCatalogue {
-    db: Pool<SqliteConnectionManager>,
-    root_dir: RootStoragePath,
-    tables: DashMap<String, u32>,
+    pub(crate) db: Pool<SqliteConnectionManager>,
+    pub(crate) tables: DashMap<i64, String>,
 }
 
-pub(crate) enum RootStoragePath {
-    Local(PathBuf),
-    Cloud(PathBuf),
-}
+impl RootCatalogue {
+    pub(crate) fn start() -> anyhow::Result<Self> {
+        let db_path = PathBuf::from("db.db");
 
-pub(crate) struct RootCatalogueBuilder {
-    db_path: PathBuf,
-    root_dir: RootStoragePath,
-}
+        let manager = SqliteConnectionManager::file(&db_path);
 
-impl RootCatalogueBuilder {
-    pub(crate) fn new() -> Self {
-        Self {
-            db_path: PathBuf::from("db.db"),
-            root_dir: RootStoragePath::Local("db/".into()),
-        }
-    }
-
-    pub(crate) fn with_cloud_provider(mut self, path: impl Into<PathBuf>) -> Self {
-        self.root_dir = RootStoragePath::Cloud(path.into());
-        self
-    }
-
-    pub(crate) fn build(self) -> RootCatalogue {
-        let manager = SqliteConnectionManager::file(&self.db_path);
         let pool = Pool::builder().build(manager).expect("DB pool failed");
 
         let conn = pool.get().unwrap();
         conn.execute_batch(CREATE_SYSTEM_TABLE_SQL).expect("System table creation failed");
 
-        let mut statement = conn.prepare("SELECT table_id FROM sys_tables LIMT 1").unwrap();
+        let mut statement = conn.prepare("SELECT table_id, table_name FROM sys_tables")?;
 
-        let table_table_id: i64 = statement
-            .query_row([], |row| {
-                row.get(0) // get column 0 as i64
-            })
-            .unwrap();
+        let table_iter = statement.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
 
-        statement = conn.prepare("SELECT schema_id FROM sys_schemas LIMT 1").unwrap();
-
-        let schema_table_id: i64 = statement
-            .query_row([], |row| {
-                row.get(0) // get column 0 as i64
-            })
-            .unwrap();
-
-        let table = DashMap::new();
-
-        table.insert(String::from("sys_tables"), table_table_id);
-        table.insert(String::from("sys_schemas"), schema_table_id);
-
-        RootCatalogue {
-            db: pool,
-            root_dir: self.root_dir,
-            tables: DashMap::new(),
+        let tables: DashMap<i64, String> = DashMap::new();
+        for table_result in table_iter {
+            let (table_id, table_name) = table_result?;
+            tables.insert(table_id, table_name);
         }
+
+        Ok(RootCatalogue {
+            db: pool,
+            tables,
+        })
+    }
+
+    pub(crate) fn destroy(self) -> anyhow::Result<()> {
+        remove_file(PathBuf::from("db.db"))?;
+
+        Ok(())
     }
 }

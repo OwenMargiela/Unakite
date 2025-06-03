@@ -1,9 +1,6 @@
-use std::path::PathBuf;
 #[allow(unused_variables)]
 #[allow(dead_code)]
-use std::sync::Arc;
-
-use datafusion::prelude::SessionContext;
+use std::path::PathBuf;
 
 use crate::{ blob_writer::{ BackEnd, CloudClient, StorageLoader }, catalogue::RootCatalogue };
 
@@ -33,14 +30,13 @@ impl EngineOptions {
     pub fn build(mut self) -> anyhow::Result<LakeEngine> {
         if let Some(cloud_provider) = self.cloud_client {
             // Instantiate Cloud Client with cloud credentials
-            let storage_backend = BackEnd(CloudClient);
+            let storage_backend = BackEnd::Cloud(CloudClient {});
         }
         unimplemented!()
     }
 }
 
 pub struct LakeEngine {
-    engine: Arc<SessionContext>,
     blob_writer: StorageLoader,
     catalogue: RootCatalogue,
 }

@@ -1,22 +1,21 @@
 [package]
 name = "unakite"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 anyhow = "1.0.98"
 
-arrow = { version ="55.1.0" , features = ["ipc"]}
 arrow-schema = { version = "55.1.0", features = ["serde" ] }
 
 bincode = { version = "2.0.1", features = ["serde"] }
 
 dashmap = "=3.10.0"
-datafusion = "47.0.0"
+
 
 r2d2 = "0.8.10"
 r2d2_sqlite = "0.29.0"
 
+rusqlite = { version = "0.36.0" }  # removed "bundled"
 
-rusqlite = { version = "0.36.0", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }

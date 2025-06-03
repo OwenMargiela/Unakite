@@ -2,7 +2,6 @@ use std::{ path::PathBuf, sync::Arc };
 
 use anyhow::Ok;
 use arrow_schema::Schema;
-use datafusion::prelude::SessionContext;
 
 /// Represents input data file
 pub enum DataFile {
@@ -23,8 +22,6 @@ pub struct StorageLoader {
     source: PathBuf,
     schema: Arc<Schema>,
     backend: BackEnd,
-
-    engine_ref: Arc<SessionContext>,
 }
 
 impl StorageLoader {
@@ -32,8 +29,7 @@ impl StorageLoader {
         data_file: DataFile,
         schema: Schema,
 
-        backend: BackEnd,
-        engine: Arc<SessionContext>
+        backend: BackEnd
     ) -> Self {
         let source = match data_file {
             DataFile::Parquet(path) => path,
@@ -47,7 +43,6 @@ impl StorageLoader {
         Self {
             source,
             schema: Arc::new(schema),
-            engine_ref: engine,
 
             backend,
         }
