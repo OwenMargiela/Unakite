@@ -1,9 +1,10 @@
 use std::{ path::PathBuf, sync::Arc };
 
+use anyhow::Ok;
 use arrow_schema::Schema;
 use datafusion::prelude::SessionContext;
 
-/// Represents input data
+/// Represents input data file
 pub enum DataFile {
     Parquet(PathBuf),
     Csv(PathBuf),
@@ -22,6 +23,8 @@ pub struct StorageLoader {
     source: PathBuf,
     schema: Arc<Schema>,
     backend: BackEnd,
+
+    engine_ref: Arc<SessionContext>,
 }
 
 impl StorageLoader {
@@ -29,7 +32,8 @@ impl StorageLoader {
         data_file: DataFile,
         schema: Schema,
 
-        backend: BackEnd
+        backend: BackEnd,
+        engine: Arc<SessionContext>
     ) -> Self {
         let source = match data_file {
             DataFile::Parquet(path) => path,
@@ -43,34 +47,15 @@ impl StorageLoader {
         Self {
             source,
             schema: Arc::new(schema),
+            engine_ref: engine,
 
             backend,
         }
     }
 
-    /// Partition and store data locally
-    pub fn store_local(
-        &self,
-        partitions: &[String],
-        engine: Arc<SessionContext>
-    ) -> anyhow::Result<()> {
-        self.process_and_store(partitions, engine)
-    }
+    // Should really be an async function
 
-    /// Partition and send data to cloud
-    pub fn send_to_cloud(
-        &self,
-        partitions: &[String],
-        engine: Arc<SessionContext>
-    ) -> anyhow::Result<()> {
-        self.process_and_store(partitions, engine)
-    }
-
-    fn process_and_store(
-        &self,
-        partitions: &[String],
-        engine: Arc<SessionContext>
-    ) -> anyhow::Result<()> {
+    fn store(&self, partitions: &[String]) -> anyhow::Result<()> {
         // 1. Register source file
         // 2. Run partitioned query using `engine`
         // 3. Write output partitions to either local or cloud if needed
@@ -78,19 +63,27 @@ impl StorageLoader {
 
         if !partitions.is_empty() {
             // Partition logic here
+            self.process_partition()?;
+            return Ok(());
         }
 
         match &self.backend {
             BackEnd::Local(dir) => {
                 // Save partitions to local filesystem
                 println!("Saving to local path: {:?}", dir);
+                self.process_partition()?;
             }
             BackEnd::Cloud(client) => {
                 // Upload partitions via cloud client
                 println!("Uploading to cloud");
+                self.process_partition()?;
             }
         }
 
         Ok(())
+    }
+
+    fn process_partition(&self) -> anyhow::Result<()> {
+        unimplemented!()
     }
 }

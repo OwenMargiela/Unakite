@@ -1,6 +1,6 @@
 pub const CREATE_SYSTEM_TABLE_SQL: &str =
     r#"
-CREATE TABLE sys_tables (
+CREATE TABLE IF NOT EXISTS sys_tables (
     table_id INTEGER NOT NULL PRIMARY KEY,
     table_name TEXT NOT NULL,
     table_url_string TEXT NOT NULL,
@@ -10,7 +10,7 @@ CREATE TABLE sys_tables (
     FOREIGN KEY (schema_id) REFERENCES sys_schemas(schema_id)
 );
 
-CREATE TABLE sys_schemas (
+CREATE TABLE IF NOT EXISTS sys_schemas (
     schema_id INTEGER NOT NULL PRIMARY KEY,
     versions TEXT NOT NULL
     table_id INTEGER NOT NULL,

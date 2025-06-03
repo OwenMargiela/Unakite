@@ -44,14 +44,16 @@ pub struct Column {
 
 pub struct Table {
     table_name: String,
-    schema_bin: Vec<u8>,
-    partitions: Vec<String>,
+    table_id: i64,
+
+    schema: Vec<Column>,
+    url: String,
 }
 
 impl Table {
     pub(crate) fn new(
         table_name: String,
-        partitions: Vec<String>,
+        url: String,
 
         table_schema: Vec<Column>
     ) -> Self {
