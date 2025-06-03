@@ -22,6 +22,10 @@ use crate::catalogue::sql_strings::CREATE_SYSTEM_TABLE_SQL;
 /// which is provided by the catalog when you load a table from local or cloud stores in the
 /// form of parquet files.
 
+// TODO:
+// - Implement schema serialization and deserialization
+// - Finalize write path by implementing partitioning
+
 pub(crate) struct RootCatalogue {
     pub(crate) db: Pool<SqliteConnectionManager>,
     pub(crate) tables: DashMap<i64, String>,
