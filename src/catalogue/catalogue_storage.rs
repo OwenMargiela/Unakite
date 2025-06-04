@@ -2,8 +2,8 @@ use anyhow::Ok;
 use rusqlite::params;
 
 use crate::catalogue::{
-    sql_strings::{ INSERT_SYS_TABLES, INSERT_SYS_SCHEMAS, DELETE_SYS_TABLES, DELETE_SYS_SCHEMAS },
-    tables::Table,
+    sql_strings::{ DELETE_SYS_SCHEMAS, DELETE_SYS_TABLES, INSERT_SYS_SCHEMAS, INSERT_SYS_TABLES },
+    tables::{ SchemaVec, Table },
     RootCatalogue,
 };
 
@@ -15,7 +15,7 @@ pub trait Catalog {
     fn del_sys_table(&self, table: i64) -> anyhow::Result<()>;
     /// Fetches a table schema
     ///
-    fn get_table_schema(&self, table: &i64) -> anyhow::Result<()>;
+    fn get_table_schema(&self, table_id: &i64) -> anyhow::Result<SchemaVec>;
     /// Returns a list of all table schemas.
     fn list_tables_schemas(&self) -> anyhow::Result<()>;
 }
@@ -29,9 +29,11 @@ impl Catalog for RootCatalogue {
 
         let schema_id = tx.last_insert_rowid();
         tx.execute(INSERT_SYS_TABLES, params![table.table_name, schema_id])?;
+        let table_id = tx.last_insert_rowid();
 
         tx.commit()?;
-        // Insert into Memeory
+
+        self.tables.insert(table_id, table.table_name.clone());
 
         Ok(())
     }
@@ -43,20 +45,21 @@ impl Catalog for RootCatalogue {
 
         tx.execute(DELETE_SYS_SCHEMAS, params![table_id])?;
 
-        // Delete from Memeory
+        self.tables.remove(&table_id);
+
         Ok(())
     }
 
-    fn get_table_schema(&self, table_id: &i64) -> anyhow::Result<()> {
+    fn get_table_schema(&self, table_id: &i64) -> anyhow::Result<SchemaVec> {
         let conn = self.db.get()?;
 
         let mut statement = conn.prepare("SELECT schema_bin FROM sys_schemas WHERE table_id = ?")?;
 
         let row = statement.query_row([table_id], |row| row.get::<_, Vec<u8>>(0))?;
 
-        // Serialize Schema
+        let schema = SchemaVec::de_serialize_schema(row);
 
-        unimplemented!()
+        Ok(schema)
     }
 
     fn list_tables_schemas(&self) -> anyhow::Result<()> {
@@ -68,7 +71,8 @@ impl Catalog for RootCatalogue {
         while let Some(row) = rows.next()? {
             // Serialize Table schema
             let bin = row.get::<_, Vec<u8>>(0)?;
-            println!("--> Bin {:?}", bin);
+            let schema = SchemaVec::de_serialize_schema(bin);
+            println!("--> Schema {:?}", schema);
         }
 
         Ok(())

@@ -6,9 +6,13 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.98"
 
-arrow-schema = { version = "55.1.0", features = ["serde" ] }
+arrow-csv = "55.1.0"
+arrow-schema = { version = "55.1.0", features = ["serde"] }
+arrow-array = "55.1.0"
+parquet = { version = "55.1.0", default-features = false, features = ["arrow", "zstd"] }
 
 bincode = { version = "2.0.1", features = ["serde"] }
+bytes = "1.10.1"
 
 dashmap = "=3.10.0"
 
@@ -19,3 +23,5 @@ r2d2_sqlite = "0.29.0"
 rusqlite = { version = "0.36.0" }  # removed "bundled"
 
 serde = { version = "1.0", features = ["derive"] }
+glob = "0.3.2"
+regex = "1.11.1"
