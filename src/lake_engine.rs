@@ -2,7 +2,10 @@
 #[allow(dead_code)]
 use std::path::PathBuf;
 
-use crate::{ blob_writer::{ BackEnd, CloudClient, StorageLoader }, catalogue::RootCatalogue };
+use datafusion::prelude::SessionContext;
+
+use crate::{ blob_writer::{ BackEnd, CloudClient }, catalogue::RootCatalogue };
+use crate::utils::csv_tools::reader::BlobWriter;
 
 pub struct EngineOptions {
     local: bool,
@@ -28,6 +31,8 @@ impl EngineOptions {
     }
 
     pub fn build(mut self) -> anyhow::Result<LakeEngine> {
+
+        // Create a datafusion listing table the references either the cloud object store of the local storage directories
         if let Some(cloud_provider) = self.cloud_client {
             // Instantiate Cloud Client with cloud credentials
             let storage_backend = BackEnd::Cloud(CloudClient {});
@@ -37,6 +42,7 @@ impl EngineOptions {
 }
 
 pub struct LakeEngine {
-    blob_writer: StorageLoader,
+    blob_writer: BlobWriter,
     catalogue: RootCatalogue,
+    sql_engine: SessionContext,
 }

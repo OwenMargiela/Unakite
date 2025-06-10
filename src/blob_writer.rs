@@ -3,6 +3,8 @@ use std::{ path::PathBuf, sync::Arc };
 use anyhow::Ok;
 use arrow_schema::Schema;
 
+use crate::utils::csv_tools::{ file_utils::LOCAL_DB_ROOT, reader::BlobWriter };
+
 /// Represents input data file
 pub enum DataFile {
     Parquet(PathBuf),
@@ -17,68 +19,33 @@ pub enum BackEnd {
 
 pub struct CloudClient; // TODO: define cloud upload logic
 
-/// Storage abstraction
-pub struct StorageLoader {
-    source: PathBuf,
-    schema: Arc<Schema>,
-    backend: BackEnd,
-}
-
-impl StorageLoader {
-    pub fn new(
-        data_file: DataFile,
-        schema: Schema,
-
-        backend: BackEnd
-    ) -> Self {
-        let source = match data_file {
-            DataFile::Parquet(path) => path,
-            DataFile::Csv(path) => {
-                // TODO: CSV → Parquet conversion, return path to parquet
-                // For now, we use the original path
-                path
-            }
-        };
-
-        Self {
-            source,
-            schema: Arc::new(schema),
-
-            backend,
-        }
-    }
-
-    // Should really be an async function
-
-    fn store(&self, partitions: &[String]) -> anyhow::Result<()> {
+impl BlobWriter {
+    async fn store(&self, partitions: Vec<String>) -> anyhow::Result<()> {
         // 1. Register source file
         // 2. Run partitioned query using `engine`
         // 3. Write output partitions to either local or cloud if needed
         // 4. Update internal catalog (if needed)
 
-        if !partitions.is_empty() {
-            // Partition logic here
-            self.process_partition()?;
-            return Ok(());
-        }
-
-        match &self.backend {
+        match &self.back_end {
             BackEnd::Local(dir) => {
                 // Save partitions to local filesystem
                 println!("Saving to local path: {:?}", dir);
-                self.process_partition()?;
+
+                if !partitions.is_empty() {
+                    // Partition logic here
+                    self.partion_on(partitions, LOCAL_DB_ROOT.to_string()).await?;
+                    return Ok(());
+                }
+
+                self.write_parquet()?;
             }
             BackEnd::Cloud(client) => {
-                // Upload partitions via cloud client
+                // Upload partitions via cloud client's chunking strategy
+
                 println!("Uploading to cloud");
-                self.process_partition()?;
             }
         }
 
         Ok(())
-    }
-
-    fn process_partition(&self) -> anyhow::Result<()> {
-        unimplemented!()
     }
 }

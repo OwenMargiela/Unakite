@@ -25,3 +25,5 @@ rusqlite = { version = "0.36.0" }  # removed "bundled"
 serde = { version = "1.0", features = ["derive"] }
 glob = "0.3.2"
 regex = "1.11.1"
+datafusion = "47.0.0"
+azure_storage_blobs = "0.21.0"

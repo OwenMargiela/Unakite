@@ -24,26 +24,31 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use anyhow::Ok;
+use arrow_schema::Schema;
+use datafusion::dataframe::DataFrameWriteOptions;
+use datafusion::prelude::{ ParquetReadOptions, SessionContext };
 use glob::{ MatchOptions, glob_with };
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{ self };
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::utils::csv_tools::reader::CsvReader;
+use crate::utils::csv_tools::reader::BlobWriter;
 
+pub const DEFAULT_SAMPLING_SIZE: usize = 5;
+pub const LOCAL_DB_ROOT: &str = "//:db/";
 pub struct Empty {}
-impl CsvReader {
+
+impl BlobWriter {
     /// Converts a CSV file to Parquet format.
     ///
     /// # Arguments
     ///
-    /// * `file_path` - The path of the CSV file to be converted.
-    /// * `delimiter` - The delimiter character used in the CSV file.
-    /// * `has_header` - Indicates whether the CSV file has a header row.
+    /// * `self` - An immutable refernce to self
     /// * `sampling_size` - The number of rows to sample for inferring the schema.
     ///
     /// # Returns
@@ -54,16 +59,16 @@ impl CsvReader {
     ///
     /// ```
 
-    pub fn convert_to_parquet(&self, sampling_size: u16) -> anyhow::Result<()> {
+    pub fn write_parquet(&self) -> anyhow::Result<Arc<Schema>> {
         let file = File::open(self.input.clone())?;
 
         let (csv_schema, _) = arrow_csv::reader::Format
             ::default()
             .with_header(self.has_header)
             .with_delimiter(self.delimiter as u8)
-            .infer_schema(file, Some(sampling_size as usize))?;
+            .infer_schema(file, Some(DEFAULT_SAMPLING_SIZE as usize))?;
 
-        let schema_ref = CsvReader::remove_deduplicate_columns(csv_schema);
+        let schema_ref = BlobWriter::remove_deduplicate_columns(csv_schema);
 
         let file = File::open(self.input.clone())?;
         let mut csv = arrow_csv::ReaderBuilder
@@ -72,12 +77,14 @@ impl CsvReader {
             .with_header(self.has_header)
             .build(file)?;
 
-        let target_file = self.input.with_extension("parquet");
+        let mut target_path = PathBuf::from(LOCAL_DB_ROOT);
+        target_path.push(self.input.file_stem().unwrap());
+        target_path.push(self.input.with_extension("parquet").file_name().unwrap());
 
         // delete it if exist
-        CsvReader::delete_if_exist(target_file.to_str().unwrap())?;
+        BlobWriter::delete_if_exist(target_path.to_str().unwrap())?;
 
-        let mut file = File::create(target_file).unwrap();
+        let mut file = File::create(target_path).unwrap();
         let props = WriterProperties::builder()
             .set_compression(Compression::SNAPPY)
             .set_created_by("cc2p".to_string())
@@ -85,13 +92,13 @@ impl CsvReader {
 
         let mut parquet_writer = parquet::arrow::ArrowWriter::try_new(
             &mut file,
-            schema_ref,
+            schema_ref.clone(),
             Some(props)
         )?;
 
         for batch in csv.by_ref() {
             match batch {
-                Ok(batch) => parquet_writer.write(&batch)?,
+                anyhow::Result::Ok(batch) => parquet_writer.write(&batch)?,
                 Err(_error) => {
                     return Err(anyhow::Error::from_boxed(Box::new(_error)));
                 }
@@ -100,11 +107,55 @@ impl CsvReader {
 
         parquet_writer.close()?;
 
-        Ok(())
+        Ok(schema_ref)
     }
 
-    pub fn partion_on(partitions: Vec<String>) -> anyhow::Result<()> {
-        unimplemented!()
+    /// Converts a CSV file to Parquet format.
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - An immutable refernce to self
+    /// * `partitions` - The vecotr containing to the partitions predicates.
+    ///
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok` if the conversion is successful, otherwise returns an `Err` with a `Box<dyn std::error::Error>`.
+    ///
+    ///
+    ///
+    /// ```
+
+    pub async fn partion_on(
+        &self,
+        partitions: Vec<String>,
+        mut db_path: String
+    ) -> anyhow::Result<Arc<Schema>> {
+        let schema = self.write_parquet()?;
+
+        let parquet_path = self.input.with_extension("parquet");
+
+        let parquet_str = parquet_path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid UTF-8 path"))?;
+
+        let ctx = SessionContext::new();
+
+        let _ = &db_path.push_str(parquet_str);
+        ctx.register_parquet("directory", db_path.clone(), ParquetReadOptions::default()).await?;
+
+        let df = ctx.sql("SELECT * FROM directory").await?;
+
+        df.write_parquet(
+            &db_path,
+            DataFrameWriteOptions::new().with_partition_by(partitions),
+            None
+        ).await?;
+
+        let parquet_path = parquet_path.to_str().expect("Valud UTF-8");
+        BlobWriter::delete_if_exist(parquet_path)?;
+
+        Ok(schema)
     }
 
     /// Deletes a file if it exists.
@@ -140,7 +191,7 @@ impl CsvReader {
         let mut names = HashMap::new();
         for field in sc.fields() {
             let field_name = field.name().as_str();
-            let field_name = CsvReader::clean_column_name(field_name);
+            let field_name = BlobWriter::clean_column_name(field_name);
 
             if let std::collections::hash_map::Entry::Vacant(e) = names.entry(field_name.clone()) {
                 e.insert(Empty {});
@@ -208,7 +259,7 @@ impl CsvReader {
 
         for entry in glob_with(pattern, options).expect("failed to read file search pattern") {
             match entry {
-                Ok(p) => {
+                anyhow::Result::Ok(p) => {
                     if p.is_file() {
                         if let Some(ext) = p.extension() {
                             if ext == "csv" {

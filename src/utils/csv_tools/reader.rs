@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::blob_writer::BackEnd;
 
-pub struct CsvReader {
+pub struct BlobWriter {
     pub(crate) input: PathBuf,
     pub(crate) back_end: BackEnd,
 
@@ -12,7 +12,7 @@ pub struct CsvReader {
     pub(crate) delimiter: char,
 }
 
-pub struct CsvReaderOps {
+pub struct BlobWriterOps {
     input: PathBuf,
     back_end: BackEnd,
 
@@ -22,9 +22,9 @@ pub struct CsvReaderOps {
     delimiter: char,
 }
 
-impl CsvReaderOps {
+impl BlobWriterOps {
     pub fn make() -> Self {
-        CsvReaderOps::default()
+        BlobWriterOps::default()
     }
 
     pub fn path(mut self, path: PathBuf) -> Self {
@@ -52,8 +52,8 @@ impl CsvReaderOps {
         self
     }
 
-    pub fn buiild(self) -> CsvReader {
-        CsvReader {
+    pub fn buiild(self) -> BlobWriter {
+        BlobWriter {
             input: self.input,
             back_end: self.back_end,
             make_partiotion_on: self.make_partiotion_on,
@@ -63,9 +63,9 @@ impl CsvReaderOps {
     }
 }
 
-impl Default for CsvReaderOps {
+impl Default for BlobWriterOps {
     fn default() -> Self {
-        CsvReaderOps {
+        BlobWriterOps {
             input: PathBuf::new(),
             back_end: BackEnd::Local(PathBuf::new()),
             make_partiotion_on: None,
