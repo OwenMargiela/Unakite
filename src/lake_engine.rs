@@ -1,42 +1,20 @@
 #[allow(unused_variables)]
 #[allow(dead_code)]
-use std::path::PathBuf;
-
-use datafusion::prelude::SessionContext;
-
-use crate::{ blob_writer::{ BackEnd, CloudClient }, catalogue::RootCatalogue };
-use crate::utils::csv_tools::reader::BlobWriter;
+use crate::catalogue::RootCatalogue;
+use crate::utils::{ csv_tools::reader::BlobWriter, storage::storage::BackEnd };
 
 pub struct EngineOptions {
-    local: bool,
-    cloud_client: Option<CloudCredentials>,
-}
-
-pub struct CloudCredentials {
-    endpoint: PathBuf,
-    container_name: String,
-    blob_name: String,
+    // Object Store Client
 }
 
 impl EngineOptions {
-    pub fn local(mut self, bool: bool) -> Self {
-        self.local = bool;
-        self
-    }
-
-    pub fn cloud_provider(mut self, cloud_cred: CloudCredentials) -> Self {
-        self.cloud_client = Some(cloud_cred);
-
-        self
+    pub fn provider(mut self) -> Self {
+        unimplemented!()
     }
 
     pub fn build(mut self) -> anyhow::Result<LakeEngine> {
+        // Instantiate object store client
 
-        // Create a datafusion listing table the references either the cloud object store of the local storage directories
-        if let Some(cloud_provider) = self.cloud_client {
-            // Instantiate Cloud Client with cloud credentials
-            let storage_backend = BackEnd::Cloud(CloudClient {});
-        }
         unimplemented!()
     }
 }
@@ -44,5 +22,5 @@ impl EngineOptions {
 pub struct LakeEngine {
     blob_writer: BlobWriter,
     catalogue: RootCatalogue,
-    sql_engine: SessionContext,
+    engine_state: BackEnd,
 }

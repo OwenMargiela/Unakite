@@ -26,4 +26,6 @@ serde = { version = "1.0", features = ["derive"] }
 glob = "0.3.2"
 regex = "1.11.1"
 datafusion = "47.0.0"
-azure_storage_blobs = "0.21.0"
+
+dotenv = "0.15.0"
+object_store = "=0.12.2"

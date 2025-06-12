@@ -1,10 +1,7 @@
 use std::path::PathBuf;
 
-use crate::blob_writer::BackEnd;
-
 pub struct BlobWriter {
     pub(crate) input: PathBuf,
-    pub(crate) back_end: BackEnd,
 
     pub(crate) make_partiotion_on: Option<Vec<String>>,
     pub(crate) has_header: bool,
@@ -14,7 +11,6 @@ pub struct BlobWriter {
 
 pub struct BlobWriterOps {
     input: PathBuf,
-    back_end: BackEnd,
 
     make_partiotion_on: Option<Vec<String>>,
     has_header: bool,
@@ -32,10 +28,6 @@ impl BlobWriterOps {
         self
     }
 
-    pub fn storage_backend(mut self, storage: BackEnd) -> Self {
-        self.back_end = storage;
-        self
-    }
     pub fn set_delimiter(mut self, delimiter: char) -> Self {
         self.delimiter = delimiter;
         self
@@ -55,7 +47,6 @@ impl BlobWriterOps {
     pub fn buiild(self) -> BlobWriter {
         BlobWriter {
             input: self.input,
-            back_end: self.back_end,
             make_partiotion_on: self.make_partiotion_on,
             has_header: self.has_header,
             delimiter: self.delimiter,
@@ -67,7 +58,7 @@ impl Default for BlobWriterOps {
     fn default() -> Self {
         BlobWriterOps {
             input: PathBuf::new(),
-            back_end: BackEnd::Local(PathBuf::new()),
+
             make_partiotion_on: None,
             has_header: true,
             delimiter: ',',

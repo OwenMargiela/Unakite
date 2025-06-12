@@ -25,13 +25,25 @@
 // SOFTWARE.
 
 use anyhow::Ok;
+
 use arrow_schema::Schema;
+use bytes::Bytes;
+
 use datafusion::dataframe::DataFrameWriteOptions;
+use datafusion::execution::object_store::ObjectStoreUrl;
 use datafusion::prelude::{ ParquetReadOptions, SessionContext };
+
 use glob::{ MatchOptions, glob_with };
+use object_store::local::LocalFileSystem;
+use object_store::path::Path;
+use object_store::ObjectStore;
+
+use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
+
 use std::collections::HashMap;
+
 use std::fs::{ self };
 use std::fs::File;
 use std::path::PathBuf;
@@ -40,26 +52,26 @@ use std::sync::Arc;
 use crate::utils::csv_tools::reader::BlobWriter;
 
 pub const DEFAULT_SAMPLING_SIZE: usize = 5;
-pub const LOCAL_DB_ROOT: &str = "//:db/";
+pub const LOCAL_DB_ROOT: &str = "db://";
 pub struct Empty {}
 
 impl BlobWriter {
-    /// Converts a CSV file to Parquet format.
+    /// Helper function to onvert a CSV file to Parquet format.
     ///
     /// # Arguments
     ///
     /// * `self` - An immutable refernce to self
-    /// * `sampling_size` - The number of rows to sample for inferring the schema.
     ///
+    /// * `Store` - Object storage interface
     /// # Returns
     ///
-    /// Returns `Ok` if the conversion is successful, otherwise returns an `Err` with a `Box<dyn std::error::Error>`.
+    /// Returns `Ok` if the conversion is successful, otherwise returns an `Err`.
     ///
     ///
     ///
     /// ```
 
-    pub fn write_parquet(&self) -> anyhow::Result<Arc<Schema>> {
+    pub async fn to_parquet(&self, store: Arc<dyn ObjectStore>) -> anyhow::Result<Arc<Schema>> {
         let file = File::open(self.input.clone())?;
 
         let (csv_schema, _) = arrow_csv::reader::Format
@@ -77,35 +89,38 @@ impl BlobWriter {
             .with_header(self.has_header)
             .build(file)?;
 
-        let mut target_path = PathBuf::from(LOCAL_DB_ROOT);
-        target_path.push(self.input.file_stem().unwrap());
-        target_path.push(self.input.with_extension("parquet").file_name().unwrap());
-
-        // delete it if exist
-        BlobWriter::delete_if_exist(target_path.to_str().unwrap())?;
-
-        let mut file = File::create(target_path).unwrap();
         let props = WriterProperties::builder()
             .set_compression(Compression::SNAPPY)
             .set_created_by("cc2p".to_string())
             .build();
 
-        let mut parquet_writer = parquet::arrow::ArrowWriter::try_new(
-            &mut file,
-            schema_ref.clone(),
-            Some(props)
-        )?;
+        let mut buffer = Vec::new();
 
-        for batch in csv.by_ref() {
-            match batch {
-                anyhow::Result::Ok(batch) => parquet_writer.write(&batch)?,
-                Err(_error) => {
-                    return Err(anyhow::Error::from_boxed(Box::new(_error)));
-                }
-            }
+        let mut writer = ArrowWriter::try_new(&mut buffer, schema_ref.clone(), Some(props))?;
+
+        for maybe_batch in csv.by_ref() {
+            let batch = maybe_batch?;
+            let _ = writer.write(&batch)?;
         }
 
-        parquet_writer.close()?;
+        writer.close()?;
+
+        let file_stem = self.input.file_stem().unwrap().to_string_lossy();
+        let file_name = self.input.with_extension("parquet").clone();
+
+        let mut upload = store.put_multipart(
+            &Path::from(
+                format!("{}/{}", file_stem, file_name.file_name().unwrap().to_string_lossy())
+            )
+        ).await?;
+
+        let chunk_size = 10 * 1024 * 1024;
+
+        for chunk in buffer.chunks(chunk_size) {
+            upload.put_part(Bytes::copy_from_slice(chunk).into()).await?;
+        }
+
+        upload.complete().await?;
 
         Ok(schema_ref)
     }
@@ -126,52 +141,67 @@ impl BlobWriter {
     ///
     /// ```
 
-    pub async fn partion_on(
+    pub async fn store(
         &self,
-        partitions: Vec<String>,
-        mut db_path: String
+        partitions: Option<Vec<String>>,
+        store: Arc<dyn ObjectStore>
     ) -> anyhow::Result<Arc<Schema>> {
-        let schema = self.write_parquet()?;
+        let schema: Arc<Schema>;
+        if partitions.is_some() {
+            let partitions = partitions.unwrap();
+            let object_store_url = ObjectStoreUrl::parse("sidebuffer://").unwrap();
+            let object_store = Arc::new(LocalFileSystem::new());
 
-        let parquet_path = self.input.with_extension("parquet");
+            schema = self.to_parquet(object_store.clone()).await?;
 
-        let parquet_str = parquet_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid UTF-8 path"))?;
+            let ctx = Arc::new(SessionContext::new());
 
-        let ctx = SessionContext::new();
+            let file_stem = self.input.file_stem().unwrap().to_string_lossy();
 
-        let _ = &db_path.push_str(parquet_str);
-        ctx.register_parquet("directory", db_path.clone(), ParquetReadOptions::default()).await?;
+            let parquet_path = format!("sidebuffer://{}/", file_stem);
 
-        let df = ctx.sql("SELECT * FROM directory").await?;
+            // Local store for reading
+            ctx.register_object_store(object_store_url.as_ref(), object_store);
+            ctx.register_parquet("sidebufer", parquet_path, ParquetReadOptions::default()).await?;
 
-        df.write_parquet(
-            &db_path,
-            DataFrameWriteOptions::new().with_partition_by(partitions),
-            None
-        ).await?;
+            // Register target store for writing with a different scheme
+            let target_store_url = ObjectStoreUrl::parse(LOCAL_DB_ROOT).unwrap();
+            ctx.register_object_store(target_store_url.as_ref(), store);
 
-        let parquet_path = parquet_path.to_str().expect("Valud UTF-8");
-        BlobWriter::delete_if_exist(parquet_path)?;
+            self.partion_parquet(ctx.clone(), partitions).await?;
 
-        Ok(schema)
+            std::fs::remove_dir_all("sidebuffer://")?;
+        } else {
+            schema = self.to_parquet(store.clone()).await?;
+        }
+        Ok(schema);
     }
 
-    /// Deletes a file if it exists.
-    ///
-    /// # Arguments
-    ///
-    /// * `filename` - The name of the file to delete.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Err` if there is an error accessing the file or deleting it.
-    ///
-    pub(self) fn delete_if_exist(filename: &str) -> anyhow::Result<()> {
-        if fs::metadata(filename).is_ok() {
-            fs::remove_file(filename)?;
+    pub async fn partion_parquet(
+        &self,
+        ctx: Arc<SessionContext>,
+        partitions: Vec<String>
+    ) -> anyhow::Result<()> {
+        let df = ctx.sql("SELECT * FROM directory").await?;
+        let schema = df.schema();
+
+        for partition in partitions.clone().into_iter() {
+            schema
+                .index_of_column_by_name(None, &partition)
+                .ok_or_else(|| anyhow::anyhow!("Column '{}' not found in schema", partition))?;
         }
+
+        let file_stem = self.input.file_stem().unwrap().to_string_lossy();
+
+        let target_parquet_path = format!("db://{}/", file_stem);
+
+        df.write_parquet(
+            &target_parquet_path,
+            DataFrameWriteOptions::new()
+                .with_partition_by(partitions)
+                .with_single_file_output(false),
+            None
+        ).await?;
 
         Ok(())
     }
